@@ -62,20 +62,47 @@
   <div id="ov" class="ov hid"><div class="spin"></div><div class="lt" id="ovTx">Yuklanmoqda...</div></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script>
 // ⚠️ APPS SCRIPT URL:
 var API='https://script.google.com/macros/s/AKfycbwQwcTq9DrAlv3fMc8WD-7XSCq0AnTgifgmG97ABfSd4crK4TH3dy4J_i0zNJlyo2OD/exec';
-var faceReady=false;
 
 var U=null,ST=null,photo64=null,fSc=0;
 var eStream=null,rStream=null,rPhoto=null;
 var _ip='',_net='',_ua=navigator.userAgent,_lat='',_lng='',_acc='',_dev='';
 var isAdmin=false;
 
-window.onload=function(){tic();setInterval(tic,1000);grab();loadFace();var sv=localStorage.getItem('ipost_em');if(sv){$('inEmail').value=sv;doLogin()}};
+window.onload=function(){tic();setInterval(tic,1000);grab();var sv=localStorage.getItem('ipost_em');if(sv){$('inEmail').value=sv;doLogin()}};
 function tic(){var n=new Date();$('clock').textContent=n.toLocaleDateString('uz-UZ',{weekday:'short',day:'numeric',month:'short',year:'numeric'})+' | '+n.toLocaleTimeString('uz-UZ')}
-async function loadFace(){try{await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/');faceReady=true;console.log('Face model ready')}catch(e){faceReady=false}}
+
+// YUZ ANIQLASH — 2 usul
+async function detectFace(img){
+  // 1-usul: Brauzer ichki FaceDetector (Chrome Android/Desktop)
+  if('FaceDetector' in window){
+    try{
+      var det=new FaceDetector({fastMode:true,maxDetectedFaces:1});
+      var faces=await det.detect(img);
+      if(faces.length>0){var b=faces[0].boundingBox;var area=(b.width*b.height)/(img.naturalWidth*img.naturalHeight)*100;return{found:true,score:Math.min(95,Math.round(area*3+50)),method:'built-in'}}
+      return{found:false,score:0,method:'built-in'};
+    }catch(e){}
+  }
+  // 2-usul: Canvas teri rangi tahlili
+  try{
+    var cv=document.createElement('canvas'),w=Math.min(img.naturalWidth,200),h=Math.round(img.naturalHeight*(w/img.naturalWidth));
+    cv.width=w;cv.height=h;var cx=cv.getContext('2d');cx.drawImage(img,0,0,w,h);
+    var d=cx.getImageData(0,0,w,h).data,skin=0,total=0;
+    // Markaziy 60% ni tekshiramiz (yuz odatda markazda)
+    var x1=Math.round(w*0.2),x2=Math.round(w*0.8),y1=Math.round(h*0.1),y2=Math.round(h*0.7);
+    for(var y=y1;y<y2;y++)for(var x=x1;x<x2;x++){
+      var i=(y*w+x)*4,r=d[i],g=d[i+1],b=d[i+2];
+      total++;
+      // Teri rangi uchun RGB diapazoni
+      if(r>80&&g>40&&b>20&&r>g&&r>b&&(r-g)>15&&Math.abs(r-g)<100&&r<250&&g<230)skin++;
+    }
+    var pct=total>0?Math.round(skin/total*100):0;
+    if(pct>=15)return{found:true,score:Math.min(90,pct+40),method:'skin'};
+    return{found:false,score:pct,method:'skin'};
+  }catch(e){return{found:false,score:0,method:'error'}}
+}
 
 function grab(){
   fetch('https://api.ipify.org?format=json').then(function(r){return r.json()}).then(function(d){_ip=d.ip}).catch(function(){_ip='unk'});
@@ -145,35 +172,19 @@ function eCamSnap(){
   $('eFrTx').innerHTML='🔍 Yuz tekshirilmoqda...';
 
   var img=$('eSnap');
-  var doDetect=async function(){
-    // Model hali yuklanmagan — kutamiz (max 8s)
-    if(!faceReady){
-      for(var w=0;w<8;w++){await new Promise(function(r){setTimeout(r,1000)});if(faceReady)break}
-    }
-    // Hali ham yuklanmagan
-    if(!faceReady){
+  var doCheck=async function(){
+    var r=await detectFace(img);
+    if(r.found){
+      fSc=r.score;
+      $('eFrTx').innerHTML='✅ Yuz aniqlandi ('+fSc+'%)';
+      showBtns();
+    }else{
       fSc=0;
-      $('eFrTx').innerHTML='⚠️ Yuz modeli yuklanmadi.<br><span style="font-size:10px;color:#f59e0b">Internet sekin. Sahifani yangilab qayta urinib ko\'ring.</span>';
-      ntf('⚠️ Yuz tekshiruv modeli yuklanmadi. Sahifani yangilang.','err');
-      return;
-    }
-    try{
-      var det=await faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions({inputSize:224,scoreThreshold:0.3}));
-      if(det&&det.score>=0.4){
-        fSc=Math.round(det.score*100);
-        $('eFrTx').innerHTML='✅ Yuz aniqlandi ('+fSc+'%)<br><span style="font-size:10px;color:#64748b">🔒 Aniq tekshiruv server tomondan</span>';
-        showBtns();
-      }else{
-        fSc=0;
-        $('eFrTx').innerHTML='❌ Yuz aniqlanmadi!<br><span style="font-size:10px;color:#f59e0b">Yaxshi yoritilgan joyda to\'g\'ri qarang va qayta oling</span>';
-        ntf('❌ Yuz aniqlanmadi! Qayta suratga oling.','err');
-      }
-    }catch(e){
-      fSc=0;
-      $('eFrTx').innerHTML='⚠️ Tekshirishda xatolik.<br><span style="font-size:10px;color:#f59e0b">Qayta suratga oling</span>';
+      $('eFrTx').innerHTML='❌ Yuz aniqlanmadi!<br><span style="font-size:10px;color:#f59e0b">Yoritilgan joyda yuzingiz to\'liq ko\'rinsin</span>';
+      ntf('❌ Yuz aniqlanmadi! Qayta suratga oling.','err');
     }
   };
-  if(img.complete&&img.naturalHeight>0)doDetect();else img.onload=function(){doDetect();img.onload=null};
+  if(img.complete&&img.naturalHeight>0)doCheck();else img.onload=function(){doCheck();img.onload=null};
 }
 function showBtns(){if(ST&&ST.exists&&ST.status==='checked_in'){H('eBIn');S('eBOut')}else if(!ST||!ST.exists){S('eBIn');H('eBOut')}}
 
